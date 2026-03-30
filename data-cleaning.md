@@ -143,7 +143,7 @@ def clean_option_text(s):
 
 def match_option(s, question_options, threshold=0.6):
     """
-    多级匹配：精确 → 包含 → 前缀 → 静默丢弃
+    多级匹配：精确 → 包含 → 前缀 → 编辑距离 → 静默丢弃
     threshold: 最短前缀匹配字符数比例
     """
     s_clean = clean_option_text(s)
@@ -166,6 +166,39 @@ def match_option(s, question_options, threshold=0.6):
         opt_clean = clean_option_text(opt)
         if opt_clean.startswith(s_prefix) or s_clean.startswith(opt_clean[:prefix_len]):
             return opt
+
+    # 第四级：编辑距离匹配（容忍1-2个字符的差异，如"3时以内"vs"3小时以内"）
+    def edit_distance(a, b):
+        """计算两个字符串的编辑距离（Levenshtein）"""
+        m, n = len(a), len(b)
+        dp = list(range(n + 1))
+        for i in range(1, m + 1):
+            prev = dp[0]
+            dp[0] = i
+            for j in range(1, n + 1):
+                temp = dp[j]
+                if a[i-1] == b[j-1]:
+                    dp[j] = prev
+                else:
+                    dp[j] = 1 + min(prev, dp[j], dp[j-1])
+                prev = temp
+        return dp[n]
+
+    # 编辑距离阈值：字符串越短容忍度越低，越长容忍度越高
+    best_match = None
+    best_dist = float('inf')
+    for opt in question_options:
+        opt_clean = clean_option_text(opt)
+        max_len = max(len(s_clean), len(opt_clean))
+        # 允许的最大编辑距离：短字符串(≤8)允许1个，长字符串允许2个
+        max_dist = 1 if max_len <= 8 else 2
+        dist = edit_distance(s_clean, opt_clean)
+        if dist <= max_dist and dist < best_dist:
+            best_dist = dist
+            best_match = opt
+
+    if best_match:
+        return best_match
 
     # 所有匹配失败 → 返回 None，不单独列出
     return None
