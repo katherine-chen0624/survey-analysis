@@ -143,9 +143,13 @@ def clean_option_text(s):
 
 def match_option(s, question_options, threshold=0.6):
     """
-    多级匹配：精确 → 包含 → 前缀 → 编辑距离 → 静默丢弃
-    threshold: 最短前缀匹配字符数比例
+    多级匹配：精确 → 包含 → 前缀 → 编辑距离 → 强制归入最相似选项
+    ⚠️ 永远不返回 None（除非 question_options 为空）
+       匹配失败时强制归入编辑距离最近的标准选项，保证 N 不被破坏
     """
+    if not question_options:
+        return None
+
     s_clean = clean_option_text(s)
 
     # 第一级：精确匹配
@@ -153,13 +157,13 @@ def match_option(s, question_options, threshold=0.6):
         if s_clean == clean_option_text(opt):
             return opt
 
-    # 第二级：包含匹配（s 包含在 opt 里，或 opt 包含在 s 里）
+    # 第二级：包含匹配
     for opt in question_options:
         opt_clean = clean_option_text(opt)
         if s_clean in opt_clean or opt_clean in s_clean:
             return opt
 
-    # 第三级：前缀匹配（取前N个字符匹配，容忍乱码导致的截断）
+    # 第三级：前缀匹配
     prefix_len = max(6, int(len(s_clean) * threshold))
     s_prefix = s_clean[:prefix_len]
     for opt in question_options:
@@ -167,9 +171,8 @@ def match_option(s, question_options, threshold=0.6):
         if opt_clean.startswith(s_prefix) or s_clean.startswith(opt_clean[:prefix_len]):
             return opt
 
-    # 第四级：编辑距离匹配（容忍1-2个字符的差异，如"3时以内"vs"3小时以内"）
+    # 第四级：编辑距离匹配（找最近的标准选项）
     def edit_distance(a, b):
-        """计算两个字符串的编辑距离（Levenshtein）"""
         m, n = len(a), len(b)
         dp = list(range(n + 1))
         for i in range(1, m + 1):
@@ -184,24 +187,19 @@ def match_option(s, question_options, threshold=0.6):
                 prev = temp
         return dp[n]
 
-    # 编辑距离阈值：字符串越短容忍度越低，越长容忍度越高
+    # 计算与所有标准选项的编辑距离，取最小的
     best_match = None
     best_dist = float('inf')
     for opt in question_options:
         opt_clean = clean_option_text(opt)
-        max_len = max(len(s_clean), len(opt_clean))
-        # 允许的最大编辑距离：短字符串(≤8)允许1个，长字符串允许2个
-        max_dist = 1 if max_len <= 8 else 2
         dist = edit_distance(s_clean, opt_clean)
-        if dist <= max_dist and dist < best_dist:
+        if dist < best_dist:
             best_dist = dist
             best_match = opt
 
-    if best_match:
-        return best_match
-
-    # 所有匹配失败 → 返回 None，不单独列出
-    return None
+    # 强制归入编辑距离最近的选项，并打印提示
+    print(f"⚠️ 选项「{s}」无法精确匹配，强制归入最近选项「{best_match}」（编辑距离={best_dist}）")
+    return best_match
 
 
 def parse_wenjuanxing_multi(series, question_options):
@@ -209,12 +207,14 @@ def parse_wenjuanxing_multi(series, question_options):
     问卷星多选题解析（含乱码容错）
     series: 该题数据列（每格是用┋分隔的多个选项）
     question_options: 从问卷题目文件获取的标准选项列表
+
+    ⚠️ match_option 永远不返回 None，所有值都会归入最近的标准选项
+       保证统计总数不被破坏
     """
-    SEPARATOR = '┋'  # 问卷星专用分隔符（U+250B）
+    SEPARATOR = '┋'
 
     counts = {opt: 0 for opt in question_options}
     n_answered = 0
-    unmatched = []  # 记录匹配失败的选项（用于调试）
 
     for val in series.dropna():
         selected = [s.strip() for s in str(val).split(SEPARATOR) if s.strip()]
@@ -224,11 +224,8 @@ def parse_wenjuanxing_multi(series, question_options):
                 matched = match_option(s, question_options)
                 if matched:
                     counts[matched] += 1
-                else:
-                    unmatched.append(s)  # 静默丢弃，不列入结果
 
-    if unmatched:
-        print(f"⚠️ 匹配失败的选项（已丢弃，共{len(unmatched)}条）：{set(unmatched)}")
+    return counts, n_answered
 
     return counts, n_answered
 
@@ -274,25 +271,29 @@ def decode_wenjuanxing_single(value, question_options):
 
 def parse_wenjuanxing_single(series, question_options):
     """
-    问卷星单选题统计
-    对每个值做解码后，统计各标准选项的频次
+    问卷星单选题统计（含模糊匹配容错）
+    ⚠️ 所有非空值都必须归入某个标准选项，不得丢弃，保证 N 不变
     """
     counts = {opt: 0 for opt in question_options}
     n_answered = 0
-    unmatched = []
 
     for val in series.dropna():
-        decoded = decode_wenjuanxing_single(val, question_options)
-        if decoded and decoded in counts:
+        # 先尝试数字编码
+        decoded = None
+        try:
+            idx = int(float(val)) - 1
+            if 0 <= idx < len(question_options):
+                decoded = question_options[idx]
+        except (ValueError, TypeError):
+            pass
+
+        # 数字编码失败 → 用模糊匹配（永远不返回 None）
+        if decoded is None:
+            decoded = match_option(str(val).strip(), question_options)
+
+        if decoded:
             counts[decoded] += 1
             n_answered += 1
-        elif decoded is None:
-            pass  # 空值跳过
-        else:
-            unmatched.append(str(val))  # 记录匹配失败（调试用）
-
-    if unmatched:
-        print(f"⚠️ 单选题匹配失败（已丢弃，共{len(unmatched)}条）：{set(unmatched)}")
 
     return counts, n_answered
 ```
