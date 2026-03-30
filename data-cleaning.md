@@ -120,10 +120,60 @@ MOBA类（王者荣耀...）┋MMORPG类（杖剑传说...）┋沙盒类（我�
 
 **禁止把整行字符串当作一个选项统计！必须先用 `┋` 切分。**
 
+⚠️ **问卷星导出时可能出现编码损坏**，导致选项文字中出现乱码字符（如 `◇◇`、`??`），
+匹配失败的残片**不得单独列出**，应归入 Other 或静默丢弃。
+
 ```python
+import re
+import unicodedata
+
+def clean_option_text(s):
+    """
+    清洗选项文字：
+    1. 去除乱码字符（替换字符 U+FFFD、未知字符等）
+    2. 统一全半角括号
+    3. 去除多余空格
+    """
+    # 去除替换字符和控制字符
+    s = re.sub(r'[\ufffd\x00-\x1f\x7f]', '', s)
+    # 统一全角括号为半角（可选，视题目文件格式而定）
+    s = s.replace('（', '(').replace('）', ')')
+    s = s.strip()
+    return s
+
+def match_option(s, question_options, threshold=0.6):
+    """
+    多级匹配：精确 → 包含 → 前缀 → 静默丢弃
+    threshold: 最短前缀匹配字符数比例
+    """
+    s_clean = clean_option_text(s)
+
+    # 第一级：精确匹配
+    for opt in question_options:
+        if s_clean == clean_option_text(opt):
+            return opt
+
+    # 第二级：包含匹配（s 包含在 opt 里，或 opt 包含在 s 里）
+    for opt in question_options:
+        opt_clean = clean_option_text(opt)
+        if s_clean in opt_clean or opt_clean in s_clean:
+            return opt
+
+    # 第三级：前缀匹配（取前N个字符匹配，容忍乱码导致的截断）
+    prefix_len = max(6, int(len(s_clean) * threshold))
+    s_prefix = s_clean[:prefix_len]
+    for opt in question_options:
+        opt_clean = clean_option_text(opt)
+        if opt_clean.startswith(s_prefix) or s_clean.startswith(opt_clean[:prefix_len]):
+            return opt
+
+    # 所有匹配失败 → 返回 None，不单独列出
+    return None
+
+
 def parse_wenjuanxing_multi(series, question_options):
     """
-    问卷星多选题解析
+    问卷星多选题解析（含乱码容错）
     series: 该题数据列（每格是用┋分隔的多个选项）
     question_options: 从问卷题目文件获取的标准选项列表
     """
@@ -131,20 +181,21 @@ def parse_wenjuanxing_multi(series, question_options):
 
     counts = {opt: 0 for opt in question_options}
     n_answered = 0
+    unmatched = []  # 记录匹配失败的选项（用于调试）
 
     for val in series.dropna():
         selected = [s.strip() for s in str(val).split(SEPARATOR) if s.strip()]
         if selected:
             n_answered += 1
             for s in selected:
-                if s in counts:
-                    counts[s] += 1
+                matched = match_option(s, question_options)
+                if matched:
+                    counts[matched] += 1
                 else:
-                    # 精确匹配失败时，尝试部分匹配
-                    for opt in question_options:
-                        if s in opt or opt in s:
-                            counts[opt] += 1
-                            break
+                    unmatched.append(s)  # 静默丢弃，不列入结果
+
+    if unmatched:
+        print(f"⚠️ 匹配失败的选项（已丢弃，共{len(unmatched)}条）：{set(unmatched)}")
 
     return counts, n_answered
 
@@ -269,13 +320,26 @@ def calc_5pt_score(series):
 def process_other_column(df, other_col, other_text_col):
     """
     处理Other__双列
-    other_col: 选择了Other的标记列（自研平台是字母，问卷星是1/0）
+    other_col: 选择了Other的标记列
     other_text_col: Other的填写内容列
+
+    ⚠️ 重要：Other选项的值不一定是单字母！
+    自研平台普通选项是 A./B. 等字母，
+    但 Other__ 列的值可能是：
+      - 字母（如 H.）
+      - 直接是填写的文字内容
+      - 或者与 other_text_col 同列
+    所以不能只用字母判断，要用"非空"判断是否选中
     """
     # 统计选择Other的人数
+    # 不论值是字母还是文字，非空即代表选中
     if df[other_col].dtype == object:
-        # 自研平台：有字母值=选了
+        # 自研平台/SurveyMonkey：非空=选中（包含字母值和文字内容）
         other_count = df[other_col].notna().sum()
+        # 排除明确的空占位符
+        other_count = df[other_col].apply(
+            lambda x: pd.notna(x) and str(x).strip() not in ['', 'nan', 'None', '0']
+        ).sum()
     else:
         # 问卷星：1=选了
         other_count = (df[other_col] == 1).sum()
@@ -290,6 +354,6 @@ def process_other_column(df, other_col, other_text_col):
     return {
         'count': int(other_count),
         'pct': other_pct,
-        'texts': texts.tolist()  # 供后续文字归纳
+        'texts': texts.tolist()
     }
 ```
