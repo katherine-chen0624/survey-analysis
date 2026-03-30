@@ -127,30 +127,40 @@ MOBA类（王者荣耀...）┋MMORPG类（杖剑传说...）┋沙盒类（我�
 import re
 import unicodedata
 
+# 系统占位值白名单（直接丢弃，不参与匹配，不计入N）
+SYSTEM_VALUES = {'(跳过)', '(空)', 'N/A', 'null', 'nan', 'None', '无', '', '-', '--'}
+
 def clean_option_text(s):
     """
     清洗选项文字：
-    1. 去除乱码字符（替换字符 U+FFFD、未知字符等）
-    2. 统一全半角括号
-    3. 去除多余空格
+    1. 去除乱码字符（U+FFFD、控制字符等）
+    2. 统一引号（弯引号→直引号，避免因引号不同导致匹配失败）
+    3. 统一全角括号为半角
+    4. 去除多余空格
     """
-    # 去除替换字符和控制字符
     s = re.sub(r'[\ufffd\x00-\x1f\x7f]', '', s)
-    # 统一全角括号为半角（可选，视题目文件格式而定）
+    # 统一弯引号为直引号
+    s = s.replace('\u201c', '"').replace('\u201d', '"')  # ""→""
+    s = s.replace('\u2018', "'").replace('\u2019', "'")  # ''→''
+    # 统一全角括号为半角
     s = s.replace('（', '(').replace('）', ')')
-    s = s.strip()
-    return s
+    return s.strip()
 
 def match_option(s, question_options, threshold=0.6):
     """
-    五级匹配：精确 → 包含 → 前缀 → 字符子集 → 强制归入最近选项
-    ⚠️ 永远不返回 None（除非 question_options 为空）
-       任何值都必须归入某个标准选项，保证 N 不被破坏
+    五级匹配：精确 → 包含 → 前缀 → 字符子集 → 编辑距离强制归并
+    ⚠️ 系统占位值（如"(跳过)"）直接返回 None 丢弃，不计入 N
+    ⚠️ 非系统值永远不返回 None，保证 N 不被破坏
     """
     if not question_options:
         return None
 
     s_clean = clean_option_text(s)
+
+    # 系统值拦截（必须在所有匹配之前）
+    if (s_clean in SYSTEM_VALUES or
+            (s_clean.startswith('(') and s_clean.endswith(')'))):
+        return None  # 系统占位值，丢弃
 
     # 第一级：精确匹配
     for opt in question_options:
