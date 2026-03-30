@@ -12,6 +12,63 @@ def preprocess(df, system_cols):
 
 ---
 
+## 0. 答题时长计算（无效样本剔除，所有平台通用）
+
+⚠️ 时间字段可能是 datetime 对象或字符串，必须兼容两种格式，不得假设类型。
+
+```python
+from datetime import datetime as dt
+
+def parse_dt(v):
+    """兼容 datetime 对象和字符串两种格式"""
+    if isinstance(v, dt):
+        return v
+    if isinstance(v, str):
+        try:
+            return dt.strptime(v.strip()[:19], '%Y-%m-%d %H:%M:%S')
+        except:
+            return None
+    return None
+
+def get_secs(row, start_col, end_col):
+    """计算答题时长（秒）"""
+    s = parse_dt(row[start_col])
+    e = parse_dt(row[end_col])
+    if s and e:
+        return abs((e - s).total_seconds())
+    return None
+
+# 使用示例：
+df['答题时长(秒)'] = df.apply(
+    lambda row: get_secs(row, '开始答题时间', '结束答题时间'), axis=1
+)
+
+# ⚠️ 过滤后必须校验（防止静默失败）：
+n_raw = len(df)
+df_valid = df[df['答题时长(秒)'] >= 60]
+n_invalid = n_raw - len(df_valid)
+
+if n_invalid == 0 and n_raw > 20:
+    # 过滤完全未生效，大概率是时间字段格式异常
+    raise ValueError(
+        f"⚠️ 时长过滤未生效（N_INVALID=0，N_RAW={n_raw}），"
+        f"时间字段格式异常，请检查开始/结束时间列的实际内容。"
+        f"禁止在未确认过滤生效的情况下继续执行。"
+    )
+
+print(f"原始数据：{n_raw} 份，剔除无效（<60秒）：{n_invalid} 份，有效N：{len(df_valid)}")
+```
+
+**各平台时间列名对照：**
+| 平台 | 开始时间列 | 结束时间列 |
+|-----|----------|----------|
+| 自研平台 | `开始答题时间` | `结束答题时间` |
+| 问卷星 | 用`所用时间`列直接提取秒数 | — |
+| SurveyMonkey | `Start Date` | `End Date` |
+| yiyo | `Time Started(UTC)` | `Time Finished(UTC)` |
+
+---
+
 ## 1. 自研平台 — 题目列解析
 
 自研平台多选题的列名格式：`题号.题目文字: 选项文字`
@@ -51,7 +108,54 @@ def decode_inhouse_scale_5pt(value, question_options):
 
 ---
 
-## 2. 问卷星 — 单选题数字还原
+## 2. 问卷星 — 多选题解析（重要：特殊分隔符）
+
+⚠️ **问卷星多选题数据格式与其他平台完全不同！**
+
+问卷星的多选题把所有选中选项合并在**一个单元格**里，
+用特殊字符 `┋`（U+250B，不是普通竖线 | ）分隔，例如：
+```
+MOBA类（王者荣耀...）┋MMORPG类（杖剑传说...）┋沙盒类（我的世界...）
+```
+
+**禁止把整行字符串当作一个选项统计！必须先用 `┋` 切分。**
+
+```python
+def parse_wenjuanxing_multi(series, question_options):
+    """
+    问卷星多选题解析
+    series: 该题数据列（每格是用┋分隔的多个选项）
+    question_options: 从问卷题目文件获取的标准选项列表
+    """
+    SEPARATOR = '┋'  # 问卷星专用分隔符（U+250B）
+
+    counts = {opt: 0 for opt in question_options}
+    n_answered = 0
+
+    for val in series.dropna():
+        selected = [s.strip() for s in str(val).split(SEPARATOR) if s.strip()]
+        if selected:
+            n_answered += 1
+            for s in selected:
+                if s in counts:
+                    counts[s] += 1
+                else:
+                    # 精确匹配失败时，尝试部分匹配
+                    for opt in question_options:
+                        if s in opt or opt in s:
+                            counts[opt] += 1
+                            break
+
+    return counts, n_answered
+
+# 使用：
+# counts, n = parse_wenjuanxing_multi(df['Q1'], q1_options)
+# 选择率 = counts[opt] / n * 100
+```
+
+---
+
+## 2b. 问卷星 — 单选题数字还原
 
 ```python
 def decode_wenjuanxing_single(value, question_options):
