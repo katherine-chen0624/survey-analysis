@@ -143,9 +143,9 @@ def clean_option_text(s):
 
 def match_option(s, question_options, threshold=0.6):
     """
-    多级匹配：精确 → 包含 → 前缀 → 编辑距离 → 强制归入最相似选项
+    五级匹配：精确 → 包含 → 前缀 → 字符子集 → 强制归入最近选项
     ⚠️ 永远不返回 None（除非 question_options 为空）
-       匹配失败时强制归入编辑距离最近的标准选项，保证 N 不被破坏
+       任何值都必须归入某个标准选项，保证 N 不被破坏
     """
     if not question_options:
         return None
@@ -163,7 +163,7 @@ def match_option(s, question_options, threshold=0.6):
         if s_clean in opt_clean or opt_clean in s_clean:
             return opt
 
-    # 第三级：前缀匹配
+    # 第三级：前缀匹配（容忍末尾截断）
     prefix_len = max(6, int(len(s_clean) * threshold))
     s_prefix = s_clean[:prefix_len]
     for opt in question_options:
@@ -171,7 +171,26 @@ def match_option(s, question_options, threshold=0.6):
         if opt_clean.startswith(s_prefix) or s_clean.startswith(opt_clean[:prefix_len]):
             return opt
 
-    # 第四级：编辑距离匹配（找最近的标准选项）
+    # 第四级：字符子集匹配（处理编码损坏导致中间字符丢失）
+    # 例："3时以内" → "3小时以内"（缺少"小"这种中间字符丢失场景）
+    s_chars = set(s_clean)
+    best_match = None
+    best_score = 0
+    for opt in question_options:
+        opt_clean = clean_option_text(opt)
+        oc_chars = set(opt_clean)
+        overlap = sum(1 for c in s_chars if c in oc_chars)
+        score = overlap / len(s_chars) if s_chars else 0
+        # s 的字符80%以上在opt里，且长度差不超过3个字符
+        if score >= 0.8 and abs(len(opt_clean) - len(s_clean)) <= 3 and score > best_score:
+            best_score = score
+            best_match = opt
+    if best_match:
+        print(f"⚠️ 选项「{s}」字符子集匹配归入「{best_match}」（匹配度={best_score:.0%}）")
+        return best_match
+
+    # 第五级：编辑距离兜底（无阈值限制，强制归入最近选项）
+    # 保证任何值都不被丢弃，N 不变
     def edit_distance(a, b):
         m, n = len(a), len(b)
         dp = list(range(n + 1))
@@ -187,18 +206,8 @@ def match_option(s, question_options, threshold=0.6):
                 prev = temp
         return dp[n]
 
-    # 计算与所有标准选项的编辑距离，取最小的
-    best_match = None
-    best_dist = float('inf')
-    for opt in question_options:
-        opt_clean = clean_option_text(opt)
-        dist = edit_distance(s_clean, opt_clean)
-        if dist < best_dist:
-            best_dist = dist
-            best_match = opt
-
-    # 强制归入编辑距离最近的选项，并打印提示
-    print(f"⚠️ 选项「{s}」无法精确匹配，强制归入最近选项「{best_match}」（编辑距离={best_dist}）")
+    best_match = min(question_options, key=lambda opt: edit_distance(s_clean, clean_option_text(opt)))
+    print(f"⚠️ 选项「{s}」无法匹配，强制归入最近选项「{best_match}」（兜底保证N不变）")
     return best_match
 
 
