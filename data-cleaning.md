@@ -239,23 +239,62 @@ def parse_wenjuanxing_multi(series, question_options):
 
 ---
 
-## 2b. 问卷星 — 单选题数字还原
+## 2b. 问卷星 — 单选题处理
+
+问卷星单选题的原始数据可能是**数字编码**（1/2/3...）或**选项文字**，需要分别处理。
+⚠️ 无论哪种格式，都必须最终还原为标准选项文字，不能让录入偏差（如"3时以内"）单独成行。
 
 ```python
 def decode_wenjuanxing_single(value, question_options):
     """
-    问卷星单选题：数字→对应选项文字
-    value: 1/2/3/4/5...（对应第几个选项）
+    问卷星单选题解码（含模糊匹配容错）
+    value: 数字编码（1/2/3...）或选项文字
+    question_options: 标准选项列表
     """
     if pd.isna(value):
         return None
+
+    # 情况一：数字编码 → 按索引还原
     try:
         idx = int(float(value)) - 1  # 1-based → 0-based
         if 0 <= idx < len(question_options):
             return question_options[idx]
-        return value
-    except:
-        return value
+    except (ValueError, TypeError):
+        pass
+
+    # 情况二：文字格式 → 用 match_option 做模糊匹配
+    # 覆盖录入偏差（如"3时以内" → "3小时以内"）
+    matched = match_option(str(value).strip(), question_options)
+    if matched:
+        return matched
+
+    # 完全无法匹配 → 返回 None，不列为新选项
+    return None
+
+
+def parse_wenjuanxing_single(series, question_options):
+    """
+    问卷星单选题统计
+    对每个值做解码后，统计各标准选项的频次
+    """
+    counts = {opt: 0 for opt in question_options}
+    n_answered = 0
+    unmatched = []
+
+    for val in series.dropna():
+        decoded = decode_wenjuanxing_single(val, question_options)
+        if decoded and decoded in counts:
+            counts[decoded] += 1
+            n_answered += 1
+        elif decoded is None:
+            pass  # 空值跳过
+        else:
+            unmatched.append(str(val))  # 记录匹配失败（调试用）
+
+    if unmatched:
+        print(f"⚠️ 单选题匹配失败（已丢弃，共{len(unmatched)}条）：{set(unmatched)}")
+
+    return counts, n_answered
 ```
 
 ---
