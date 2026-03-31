@@ -65,12 +65,33 @@ def export_survey_report(analysis_results, project_name, test_round, n_raw,
         all_rows.append([f"▌ {q_text}（有效N={n}）"])
 
         if q_type in ('single_choice', 'multi_choice'):
-            col_name = '占比(%)' if q_type == 'single_choice' else '选择率(%)'
+            col_name = '占比' if q_type == 'single_choice' else '选择率'
             all_rows.append(['选项', col_name, '人数'])
             for _, row in result_df.iterrows():
-                all_rows.append([row['选项'], row.get(col_name, ''), row['人数']])
+                # ⚠️ 格式强制：选择率/占比必须是带%的字符串，人数必须是整数
+                # 列顺序严格对应标题：选项文字 | 选择率(%) | 人数(整数)
+                raw_pct = row.get(col_name, '')
+                if isinstance(raw_pct, (int, float)):
+                    pct_str = f"{raw_pct:.1f}%"  # 裸数字强制转为百分比字符串
+                else:
+                    pct_str = str(raw_pct) if '%' in str(raw_pct) else f"{raw_pct}%"
+                count = int(row['人数']) if pd.notna(row['人数']) else 0
+                all_rows.append([row['选项'], pct_str, count])
             if q_type == 'multi_choice':
                 all_rows.append([f'（多选题，基数N={n}，各选择率之和可能超过100%）'])
+
+            # ⚠️ Other 填答归纳：必须在所有选项数据展示完毕后追加，不得插在选项中间
+            other_texts = item.get('other_texts', [])
+            if other_texts:
+                all_rows.append([f'↓ Other填答归纳（N={len(other_texts)}）'])
+                if len(other_texts) >= 5:
+                    # ≥5条做主题归纳
+                    for theme in item.get('other_themes', other_texts):
+                        all_rows.append([f'  • {theme}'])
+                else:
+                    # <5条展示原文
+                    for t in other_texts:
+                        all_rows.append([f'  • "{t}"'])
 
         elif q_type == '5pt_scale':
             all_rows.append([f'均分（1~5）：{item.get("score")}'])
