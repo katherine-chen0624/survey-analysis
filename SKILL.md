@@ -30,6 +30,7 @@ description: >
 💡 使用飞书链接前请确认已开通以下权限（联系技术同学一次配置）：
   • 读取电子表格：sheets:spreadsheet:readonly
   • 访问云盘文件：drive:drive:readonly
+  • 导入/写入表格：drive:drive 或 docs:document:import
   没有权限？直接把飞书表格下载为 .xlsx 发给我也可以 🚀
 ```
 
@@ -49,8 +50,12 @@ description: >
 |-------|-----|---------|
 | `sheets:spreadsheet:readonly` | 读取飞书电子表格内容 | 飞书开放平台 → 机器人应用 → 权限管理 |
 | `drive:drive:readonly` | 访问飞书云盘文件 | 同上 |
+| `drive:drive` 或 `docs:document:import` | 将分析结果导入/写入飞书电子表格 | 同上 |
 
 **如未开通以上权限，发送飞书链接时将无法自动读取，系统会提示具体缺少哪项权限。**
+
+**没有写入权限时的临时方案：**
+AI 会把分析结果生成为 Excel 文件发给你，你在飞书里打开该文件后，点右上角「···」→「转存到云空间」，即可转为飞书电子表格。
 
 权限申请建议联系你们的技术同学，**一次配置永久生效**，配置完成后发飞书链接即可自动读取，无需任何额外操作。
 
