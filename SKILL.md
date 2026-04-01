@@ -28,9 +28,10 @@ description: >
 
 ---
 💡 使用飞书链接前请确认已开通以下权限（联系技术同学一次配置）：
-  • 读取电子表格：sheets:spreadsheet:readonly
-  • 访问云盘文件：drive:drive:readonly
-  • 导入/写入表格：drive:drive 或 docs:document:import
+  • 读取表格：sheets:spreadsheet:read
+  • 访问云盘：drive:drive:readonly
+  • 创建表格：sheets:spreadsheet:create
+  • 写入表格：sheets:spreadsheet
   没有权限？直接把飞书表格下载为 .xlsx 发给我也可以 🚀
 ```
 
@@ -46,11 +47,13 @@ description: >
 
 **使用飞书电子表格/云文档功能前，请确认以下权限已开通：**
 
-| 权限项 | 用途 | 申请方式 |
+| 权限项 | 用途 | 是否必须 |
 |-------|-----|---------|
-| `sheets:spreadsheet:readonly` | 读取飞书电子表格内容 | 飞书开放平台 → 机器人应用 → 权限管理 |
-| `drive:drive:readonly` | 访问飞书云盘文件 | 同上 |
-| `drive:drive` 或 `docs:document:import` | 将分析结果导入/写入飞书电子表格 | 同上 |
+| `sheets:spreadsheet:read` | 读取飞书电子表格（问卷题目） | ✅ 必须 |
+| `drive:drive:readonly` | 访问飞书云盘文件 | ✅ 必须 |
+| `sheets:spreadsheet:create` | 创建新的飞书电子表格（生成分析报告） | ✅ 必须 |
+| `sheets:spreadsheet` | 编辑/写入表格内容 | ✅ 必须 |
+| `docs:document:import` | 将本地文件导入为飞书云文档 | ⚠️ 可选 |
 
 **如未开通以上权限，发送飞书链接时将无法自动读取，系统会提示具体缺少哪项权限。**
 
