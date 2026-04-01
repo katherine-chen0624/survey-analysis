@@ -28,10 +28,9 @@ description: >
 
 ---
 💡 使用飞书链接前请确认已开通以下权限（联系技术同学一次配置）：
-  • 读取表格：sheets:spreadsheet:read
+  • 读取表格：sheets:spreadsheet:readonly（或 sheets:spreadsheet）
   • 访问云盘：drive:drive:readonly
-  • 创建表格：sheets:spreadsheet:create
-  • 写入表格：sheets:spreadsheet
+  • 完整云盘：drive:drive
   没有权限？直接把飞书表格下载为 .xlsx 发给我也可以 🚀
 ```
 
@@ -49,10 +48,10 @@ description: >
 
 | 权限项 | 用途 | 是否必须 |
 |-------|-----|---------|
-| `sheets:spreadsheet:read` | 读取飞书电子表格（问卷题目） | ✅ 必须 |
+| `sheets:spreadsheet:readonly` | 读取飞书电子表格（最小权限） | ✅ 与下方二选一 |
+| `sheets:spreadsheet` | 读取+编辑电子表格（写入分析结果用） | ✅ 与上方二选一 |
 | `drive:drive:readonly` | 访问飞书云盘文件 | ✅ 必须 |
-| `sheets:spreadsheet:create` | 创建新的飞书电子表格（生成分析报告） | ✅ 必须 |
-| `sheets:spreadsheet` | 编辑/写入表格内容 | ✅ 必须 |
+| `drive:drive` | 完整云盘访问（上传/创建文件） | ✅ 必须 |
 | `docs:document:import` | 将本地文件导入为飞书云文档 | ⚠️ 可选 |
 
 **如未开通以上权限，发送飞书链接时将无法自动读取，系统会提示具体缺少哪项权限。**
